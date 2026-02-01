@@ -86,23 +86,31 @@ def main():
     # The student checkpoint has keys like "backbone.model.input_stem..."
     # The model expects keys like "backbone.vision_backbone.trunk.model.backbone.model.input_stem..."
     # So we need to prepend "detector.backbone.vision_backbone.trunk.model."
-    image_prefix = "detector.backbone.vision_backbone.trunk.model."
-    text_prefix = "detector.backbone.language_backbone."
+    
+    # Prefix for inserting NEW efficient weights
+    student_image_prefix = "detector.backbone.vision_backbone.trunk.model."
+    student_text_prefix = "detector.backbone.language_backbone."
+
+    # Prefix for identifying OLD teacher weights to remove
+    # Note: SAM3 vision keys are "detector.backbone.vision_backbone.trunk.blocks..." 
+    # so we must filter by "...trunk."
+    teacher_image_prefix = "detector.backbone.vision_backbone.trunk."
+    teacher_text_prefix = "detector.backbone.language_backbone."
     
     # 1. Add Image Student Weights
-    print(f"Merging Image Student weights (prefix: {image_prefix})...")
+    print(f"Merging Image Student weights (prefix: {student_image_prefix})...")
     for key, value in image_sd.items():
         # Remove student_trunk prefix if present (artifact from training wrapper)
         if key.startswith("student_trunk."):
             key = key.replace("student_trunk.", "")
             
-        merged_key = f"{image_prefix}{key}"
+        merged_key = f"{student_image_prefix}{key}"
         merged[merged_key] = value
 
     # 2. Add Text Student Weights
-    print(f"Merging Text Student weights (prefix: {text_prefix})...")
+    print(f"Merging Text Student weights (prefix: {student_text_prefix})...")
     for key, value in text_sd.items():
-        merged_key = f"{text_prefix}{key}"
+        merged_key = f"{student_text_prefix}{key}"
         merged[merged_key] = value
 
     # 3. Add Teacher Weights (skipping those replaced)
@@ -113,10 +121,10 @@ def main():
     
     for key, value in teacher_sd.items():
         # Check if this key belongs to image or text backbone
-        if key.startswith(image_prefix):
+        if key.startswith(teacher_image_prefix):
             replaced += 1
             continue
-        if key.startswith(text_prefix):
+        if key.startswith(teacher_text_prefix):
             replaced += 1
             continue
             

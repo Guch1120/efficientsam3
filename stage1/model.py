@@ -95,11 +95,17 @@ def build_text_student_model(config, logger=None):
         # Default fallback
         pass
 
+    # Get context length from config (default 32, can be 8 or 16 for efficiency)
+    context_length = getattr(config.DISTILL, 'CONTEXT_LENGTH', 32)
+    
     model = TextStudentEncoder(
         cfg=cfg,
-        context_length=32, # Match teacher input length
+        context_length=context_length,
         output_dim=config.DISTILL.EMBED_DIM,
     )
+    
+    if logger:
+        logger.info(f"Text encoder context_length: {context_length}")
     
     # Load pretrained weights if specified
     if hasattr(config.MODEL, 'PRETRAINED') and config.MODEL.PRETRAINED:
@@ -166,8 +172,10 @@ def build_image_teacher_model(config):
 
 def build_text_teacher_model(config):
     checkpoint = config.MODEL.RESUME if config.MODEL.RESUME else None
+    context_length = getattr(config.DISTILL, 'CONTEXT_LENGTH', 32)
     teacher = SAM3TextTeacherEncoder(
         checkpoint_path=checkpoint,
+        context_length=context_length,
     )
     return teacher
 
@@ -237,8 +245,9 @@ class SAM3ImageTeacherEncoder(nn.Module):
 
 
 class SAM3TextTeacherEncoder(nn.Module):
-    def __init__(self, checkpoint_path=None):
+    def __init__(self, checkpoint_path=None, context_length=32):
         super().__init__()
+        self.context_length = context_length
         self.sam3 = build_sam3_image_model(
             checkpoint_path=checkpoint_path,
             load_from_HF=False if checkpoint_path else True,
@@ -253,6 +262,10 @@ class SAM3TextTeacherEncoder(nn.Module):
         for param in self.sam3.parameters():
             param.requires_grad = False
         self.sam3.eval()
+        
+        # Override the context_length in the language backbone
+        if hasattr(self.sam3.backbone, 'language_backbone'):
+            self.sam3.backbone.language_backbone.context_length = context_length
 
     def forward(self, text, device):
         # text is a list of strings
@@ -260,6 +273,9 @@ class SAM3TextTeacherEncoder(nn.Module):
             text, input_boxes=None, device=device
         )
         # text_memory is [Seq, Batch, 256]
+        # Truncate to context_length if needed
+        if text_memory.shape[0] > self.context_length:
+            text_memory = text_memory[:self.context_length]
         return text_memory
 
 
