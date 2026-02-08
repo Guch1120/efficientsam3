@@ -496,7 +496,7 @@ def _create_text_encoder(bpe_path: str) -> VETextEncoder:
     )
 
 
-def _create_student_text_encoder(bpe_path: str, backbone_type: str) -> TextStudentEncoder:
+def _create_student_text_encoder(bpe_path: str, backbone_type: str, context_length: int = 32) -> TextStudentEncoder:
     """Create Student text encoder."""
     
     # Default config values
@@ -545,9 +545,12 @@ def _create_student_text_encoder(bpe_path: str, backbone_type: str) -> TextStude
             "model_name": "base", 
         })
     
+    # Update context length in config to match requested length
+    cfg["context_length"] = context_length
+
     return TextStudentEncoder(
         cfg=cfg,
-        context_length=32, # Match teacher input length
+        context_length=context_length, # Use provided context length (default 32)
         output_dim=256, # SAM3 d_model
         bpe_path=bpe_path
     )
@@ -601,7 +604,24 @@ def _load_checkpoint(model, checkpoint_path):
         # e.g., ...backbone.model.student_trunk.head... -> ...backbone.model.head...
         if "student_trunk." in new_k:
             new_k = new_k.replace("student_trunk.", "")
-            
+        
+        # Retrofit MobileCLIP Manual Attention -> nn.MultiheadAttention
+        if "qkv_proj.weight" in new_k:
+            new_k = new_k.replace("qkv_proj.weight", "attn.in_proj_weight")
+        elif "qkv_proj.bias" in new_k:
+            new_k = new_k.replace("qkv_proj.bias", "attn.in_proj_bias")
+        elif "out_proj.weight" in new_k and "language_backbone" in new_k: 
+            # Only replace out_proj if it's part of the language backbone (MobileCLIP)
+            # Standard ViT might have out_proj too?
+            # MobileCLIP text encoder is usually under 'backbone.language_backbone'
+            # Let's be safe and check if we are in the context of the attention module
+            # The old path was ...pre_norm_mha.1.out_proj.weight
+            if "pre_norm_mha" in new_k:
+                 new_k = new_k.replace("out_proj.weight", "attn.out_proj.weight")
+        elif "out_proj.bias" in new_k and "language_backbone" in new_k:
+            if "pre_norm_mha" in new_k:
+                new_k = new_k.replace("out_proj.bias", "attn.out_proj.bias")
+
         cleaned_ckpt[new_k] = v
         
     sam3_image_ckpt = {
@@ -773,6 +793,11 @@ def _create_student_vision_backbone(
     
     # Position encoding
     position_encoding = _create_position_encoding(precompute_resolution=1008)
+    
+    if backbone_type == "sam3":
+        return _create_vision_backbone(
+            compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity
+        )
     
     if backbone_type == "efficientvit":
         from sam3.backbones.efficientvit.efficientvit.backbone import (
@@ -1155,3 +1180,160 @@ def build_sam3_video_predictor(*model_args, gpus_to_use=None, **model_kwargs):
     return Sam3VideoPredictorMultiGPU(
         *model_args, gpus_to_use=gpus_to_use, **model_kwargs
     )
+
+
+def _load_state_dict_from_path(checkpoint_path: str) -> dict:
+    """Load a checkpoint dict from path and return the raw state_dict-like mapping.
+
+    Supports checkpoints saved as:
+    - {"model": state_dict}
+    - {"state_dict": state_dict}
+    - state_dict
+    """
+    with g_pathmgr.open(checkpoint_path, "rb") as f:
+        try:
+            ckpt = torch.load(f, map_location="cpu", weights_only=True)
+        except TypeError:
+            ckpt = torch.load(f, map_location="cpu")
+    if isinstance(ckpt, dict) and "model" in ckpt and isinstance(ckpt["model"], dict):
+        return ckpt["model"]
+    if isinstance(ckpt, dict) and "state_dict" in ckpt and isinstance(ckpt["state_dict"], dict):
+        return ckpt["state_dict"]
+    if isinstance(ckpt, dict):
+        return ckpt
+    raise TypeError(f"Unsupported checkpoint type at {checkpoint_path}: {type(ckpt)}")
+
+
+def build_efficientsam3_video_model(
+    checkpoint_path: Optional[str] = None,
+    load_from_HF: bool = False,
+    bpe_path: Optional[str] = None,
+    has_presence_token: bool = True,
+    strict_state_dict_loading: bool = False,
+    apply_temporal_disambiguation: bool = True,
+    device: str = "cuda" if torch.cuda.is_available() else "cpu",
+    compile: bool = False,
+    backbone_type: str = "repvit",
+    model_name: str = "m1.1",
+    text_encoder_type: Optional[str] = None,
+    enable_inst_interactivity: bool = True,
+) -> Sam3VideoInferenceWithInstanceInteractivity:
+    """Build EfficientSAM3 video model (main-branch implementation).
+
+    This variant swaps the default SAM3 vision backbone with a student backbone
+    (EfficientViT/RepViT/TinyViT) while keeping the same detector+tracker wrapper.
+    """
+    if bpe_path is None:
+        bpe_path = os.path.join(
+            os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
+        )
+
+    tracker = build_tracker(apply_temporal_disambiguation=apply_temporal_disambiguation)
+    compile_mode = "default" if compile else None
+    visual_neck = _create_student_vision_backbone(
+        backbone_type=backbone_type,
+        model_name=model_name,
+        compile_mode=compile_mode,
+        enable_inst_interactivity=enable_inst_interactivity,
+    )
+    if text_encoder_type:
+        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type)
+    else:
+        text_encoder = _create_text_encoder(bpe_path)
+
+    backbone = SAM3VLBackbone(scalp=1, visual=visual_neck, text=text_encoder)
+    transformer = _create_sam3_transformer(has_presence_token=has_presence_token)
+    segmentation_head: UniversalSegmentationHead = _create_segmentation_head(
+        compile_mode=compile_mode
+    )
+    input_geometry_encoder = _create_geometry_encoder()
+
+    main_dot_prod_mlp = MLP(
+        input_dim=256,
+        hidden_dim=2048,
+        output_dim=256,
+        num_layers=2,
+        dropout=0.1,
+        residual=True,
+        out_norm=nn.LayerNorm(256),
+    )
+    main_dot_prod_scoring = DotProductScoring(
+        d_model=256, d_proj=256, prompt_mlp=main_dot_prod_mlp
+    )
+    detector = Sam3ImageOnVideoMultiGPU(
+        num_feature_levels=1,
+        backbone=backbone,
+        transformer=transformer,
+        segmentation_head=segmentation_head,
+        semantic_segmentation_head=None,
+        input_geometry_encoder=input_geometry_encoder,
+        use_early_fusion=True,
+        use_dot_prod_scoring=True,
+        dot_prod_scoring=main_dot_prod_scoring,
+        supervise_joint_box_scores=has_presence_token,
+    )
+    model = Sam3VideoInferenceWithInstanceInteractivity(
+        detector=detector,
+        tracker=tracker,
+        score_threshold_detection=0.5,
+        assoc_iou_thresh=0.1,
+        det_nms_thresh=0.1,
+        new_det_thresh=0.7,
+        hotstart_delay=15 if apply_temporal_disambiguation else 0,
+        hotstart_unmatch_thresh=8 if apply_temporal_disambiguation else 0,
+        hotstart_dup_thresh=8 if apply_temporal_disambiguation else 0,
+        suppress_unmatched_only_within_hotstart=True,
+        min_trk_keep_alive=-1,
+        max_trk_keep_alive=30,
+        init_trk_keep_alive=30,
+        suppress_overlapping_based_on_recent_occlusion_threshold=0.7,
+        suppress_det_close_to_boundary=False,
+        fill_hole_area=16,
+        recondition_every_nth_frame=16 if apply_temporal_disambiguation else 0,
+        masklet_confirmation_enable=False,
+        decrease_trk_keep_alive_for_empty_masklets=False,
+        image_size=1008,
+        image_mean=(0.5, 0.5, 0.5),
+        image_std=(0.5, 0.5, 0.5),
+        compile_model=compile,
+    )
+
+    if load_from_HF and checkpoint_path is None:
+        checkpoint_path = download_ckpt_from_hf()
+    if checkpoint_path is not None:
+        with g_pathmgr.open(checkpoint_path, "rb") as f:
+            try:
+                ckpt = torch.load(f, map_location="cpu", weights_only=True)
+            except TypeError:
+                ckpt = torch.load(f, map_location="cpu")
+        if "model" in ckpt and isinstance(ckpt["model"], dict):
+            ckpt = ckpt["model"]
+
+        cleaned_ckpt = {}
+        for k, v in ckpt.items():
+            new_k = k.replace("student_trunk.", "")
+            cleaned_ckpt[new_k] = v
+
+        if not any(
+            k.startswith("detector.") or k.startswith("tracker.")
+            for k in cleaned_ckpt.keys()
+        ) and any(k.startswith("backbone.") for k in cleaned_ckpt.keys()):
+            cleaned_ckpt = {f"detector.{k}": v for k, v in cleaned_ckpt.items()}
+
+        missing_keys, unexpected_keys = model.load_state_dict(
+            cleaned_ckpt, strict=strict_state_dict_loading
+        )
+        if missing_keys:
+            print(f"Missing keys: {missing_keys[:10]}")
+        if unexpected_keys:
+            print(f"Unexpected keys: {unexpected_keys[:10]}")
+
+    model.to(device=device)
+    return model
+
+
+def build_efficientsam3_video_predictor(*model_args, gpus_to_use=None, **model_kwargs):
+    """Build a video predictor that uses the EfficientSAM3 video model builder."""
+    model_kwargs = dict(model_kwargs)
+    model_kwargs["use_efficientsam3"] = True
+    return Sam3VideoPredictorMultiGPU(*model_args, gpus_to_use=gpus_to_use, **model_kwargs)

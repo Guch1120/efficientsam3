@@ -27,6 +27,13 @@ class Sam3VideoPredictor:
     def __init__(
         self,
         checkpoint_path=None,
+        # EfficientSAM3 support (not in upstream SAM3): allow building the video model with
+        # EfficientSAM3 student vision backbone + optional student text encoder.
+        use_efficientsam3: bool = False,
+        backbone_type: str = "repvit",
+        model_name: str = "m1.1",
+        text_encoder_type: Optional[str] = None,
+        enable_inst_interactivity: bool = True,
         bpe_path=None,
         has_presence_token=True,
         geo_encoder_use_img_cross_attn=True,
@@ -37,20 +44,39 @@ class Sam3VideoPredictor:
     ):
         self.async_loading_frames = async_loading_frames
         self.video_loader_type = video_loader_type
-        from sam3.model_builder import build_sam3_video_model
+        from sam3.model_builder import build_sam3_video_model, build_efficientsam3_video_model
 
-        self.model = (
-            build_sam3_video_model(
-                checkpoint_path=checkpoint_path,
-                bpe_path=bpe_path,
-                has_presence_token=has_presence_token,
-                geo_encoder_use_img_cross_attn=geo_encoder_use_img_cross_attn,
-                strict_state_dict_loading=strict_state_dict_loading,
-                apply_temporal_disambiguation=apply_temporal_disambiguation,
+        if use_efficientsam3:
+            # Note: build_efficientsam3_video_model signature matches main-branch EfficientSAM3.
+            # `geo_encoder_use_img_cross_attn` is kept for API compatibility but unused here.
+            self.model = (
+                build_efficientsam3_video_model(
+                    checkpoint_path=checkpoint_path,
+                    bpe_path=bpe_path,
+                    has_presence_token=has_presence_token,
+                    strict_state_dict_loading=strict_state_dict_loading,
+                    apply_temporal_disambiguation=apply_temporal_disambiguation,
+                    backbone_type=backbone_type,
+                    model_name=model_name,
+                    text_encoder_type=text_encoder_type,
+                    enable_inst_interactivity=enable_inst_interactivity,
+                )
+                .cuda()
+                .eval()
             )
-            .cuda()
-            .eval()
-        )
+        else:
+            self.model = (
+                build_sam3_video_model(
+                    checkpoint_path=checkpoint_path,
+                    bpe_path=bpe_path,
+                    has_presence_token=has_presence_token,
+                    geo_encoder_use_img_cross_attn=geo_encoder_use_img_cross_attn,
+                    strict_state_dict_loading=strict_state_dict_loading,
+                    apply_temporal_disambiguation=apply_temporal_disambiguation,
+                )
+                .cuda()
+                .eval()
+            )
 
     @torch.inference_mode()
     def handle_request(self, request):
