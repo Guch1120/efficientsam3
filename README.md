@@ -76,13 +76,10 @@ Download checkpoints from the [Model Zoo](#efficientsam3-model-zoo--weight-relea
 
 **Quick Start:**
 
-<p align="center">
-  <img src="https://github.com/SimonZeng7108/efficientsam3/blob/main/images/es-tv-mc-m-teaser.png" width="30%">
-</p>
 
 <p align="center">
-  <img src="https://github.com/SimonZeng7108/efficientsam3/blob/main/images/dog_person_example_dog.png" width="45%">
-  <img src="https://github.com/SimonZeng7108/efficientsam3/blob/main/images/dog_person_example_person.png" width="45%">
+  <img src="https://raw.githubusercontent.com/SimonZeng7108/efficientsam3/refs/heads/sam3_litetext/images/dog_person_example_dog.png" width="45%">
+  <img src="https://raw.githubusercontent.com/SimonZeng7108/efficientsam3/refs/heads/sam3_litetext/images/dog_person_example_person.png" width="45%">
 </p>
 
  **MobileCLIP-S1 (63.56M)** distilled from **SAM3 Text Encoder (353.72M)**
