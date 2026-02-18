@@ -33,6 +33,7 @@ class Sam3VideoPredictor:
         backbone_type: str = "repvit",
         model_name: str = "m1.1",
         text_encoder_type: Optional[str] = None,
+        text_encoder_context_length: int = 77,
         enable_inst_interactivity: bool = True,
         bpe_path=None,
         has_presence_token=True,
@@ -59,6 +60,7 @@ class Sam3VideoPredictor:
                     backbone_type=backbone_type,
                     model_name=model_name,
                     text_encoder_type=text_encoder_type,
+                    text_encoder_context_length=text_encoder_context_length,
                     enable_inst_interactivity=enable_inst_interactivity,
                 )
                 .cuda()
@@ -73,6 +75,8 @@ class Sam3VideoPredictor:
                     geo_encoder_use_img_cross_attn=geo_encoder_use_img_cross_attn,
                     strict_state_dict_loading=strict_state_dict_loading,
                     apply_temporal_disambiguation=apply_temporal_disambiguation,
+                    text_encoder_type=text_encoder_type,
+                    text_encoder_context_length=text_encoder_context_length,
                 )
                 .cuda()
                 .eval()

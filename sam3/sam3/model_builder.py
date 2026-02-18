@@ -668,6 +668,8 @@ def build_sam3_image_model(
     compile=False,
     enable_text_encoder=True,
     enable_vision_encoder=True,
+    text_encoder_type=None,
+    text_encoder_context_length=77,
 ):
     """
     Build SAM3 image model
@@ -682,6 +684,11 @@ def build_sam3_image_model(
         compile_mode: To enable compilation, set to "default"
         enable_text_encoder: Whether to enable text encoder
         enable_vision_encoder: Whether to enable vision encoder
+        text_encoder_type: Optional student text encoder type for LiteText models
+            (e.g. 'MobileCLIP-S0', 'MobileCLIP-S1', 'MobileCLIP2-L').
+            If None, uses the standard SAM3 text encoder.
+        text_encoder_context_length: Target context length for text encoder (default: 77).
+            Only used when text_encoder_type is set. Common values: 16, 32, 77.
 
     Returns:
         A SAM3 image model
@@ -701,7 +708,14 @@ def build_sam3_image_model(
 
     # Create text components
     if enable_text_encoder:
-        text_encoder = _create_text_encoder(bpe_path)
+        if text_encoder_type:
+            # LiteText: use student text encoder, initialized with context_length=77
+            # for checkpoint weight compatibility
+            text_encoder = _create_student_text_encoder(
+                bpe_path, text_encoder_type, context_length=77
+            )
+        else:
+            text_encoder = _create_text_encoder(bpe_path)
     else:
         text_encoder = None
 
@@ -743,6 +757,10 @@ def build_sam3_image_model(
     # Load checkpoint if provided
     if checkpoint_path is not None:
         _load_checkpoint(model, checkpoint_path)
+
+    # Truncate text encoder context length after checkpoint loading
+    if text_encoder_type and text_encoder_context_length < 77:
+        model.backbone.language_backbone.set_context_length(text_encoder_context_length)
 
     # Setup device and mode
     model = _setup_device_and_mode(model, device, eval_mode)
@@ -944,6 +962,7 @@ def build_efficientsam3_image_model(
     # Legacy argument support
     efficientvit_model=None,
     text_encoder_type=None, # e.g. "MobileCLIP-S0"
+    text_encoder_context_length=77,
 ):
     """
     Build EfficientSAM3 image model with a student backbone
@@ -961,6 +980,8 @@ def build_efficientsam3_image_model(
         model_name: Model variant (e.g. 'b0', 'm1.1', '5m')
         efficientvit_model: Deprecated, use backbone_type and model_name instead
         text_encoder_type: Type of text encoder (e.g. 'MobileCLIP-S0'). If None, uses standard SAM3 text encoder.
+        text_encoder_context_length: Target context length for text encoder (default: 77).
+            Only used when text_encoder_type is set. Common values: 16, 32, 77.
 
     Returns:
         An EfficientSAM3 image model
@@ -984,7 +1005,8 @@ def build_efficientsam3_image_model(
 
     # Create text components
     if text_encoder_type:
-        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type)
+        # LiteText: initialize with context_length=77 for checkpoint weight compatibility
+        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type, context_length=77)
     else:
         text_encoder = _create_text_encoder(bpe_path)
 
@@ -1029,6 +1051,10 @@ def build_efficientsam3_image_model(
     if checkpoint_path is not None:
         _load_checkpoint(model, checkpoint_path)
 
+    # Truncate text encoder context length after checkpoint loading
+    if text_encoder_type and text_encoder_context_length < 77:
+        model.backbone.language_backbone.set_context_length(text_encoder_context_length)
+
     # Setup device and mode
     model = _setup_device_and_mode(model, device, eval_mode)
 
@@ -1045,13 +1071,22 @@ def build_sam3_video_model(
     apply_temporal_disambiguation: bool = True,
     device="cuda" if torch.cuda.is_available() else "cpu",
     compile=False,
+    text_encoder_type: Optional[str] = None,
+    text_encoder_context_length: int = 77,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
     Build SAM3 dense tracking model.
 
     Args:
-        checkpoint_path: Optional path to checkpoint file
+        checkpoint_path: Optional path to checkpoint file.
+            When text_encoder_type is set, this should be a fully-merged LiteText
+            video checkpoint containing detector + tracker + student text encoder weights.
         bpe_path: Path to the BPE tokenizer file
+        text_encoder_type: Optional student text encoder type for LiteText models
+            (e.g. 'MobileCLIP-S0', 'MobileCLIP-S1', 'MobileCLIP2-L').
+            If None, uses the standard SAM3 text encoder.
+        text_encoder_context_length: Target context length for text encoder (default: 77).
+            Only used when text_encoder_type is set. Common values: 16, 32, 77.
 
     Returns:
         Sam3VideoInferenceWithInstanceInteractivity: The instantiated dense tracking model
@@ -1155,22 +1190,62 @@ def build_sam3_video_model(
             compile_model=compile,
         )
 
-    # Load checkpoint if provided
-    if load_from_HF and checkpoint_path is None:
-        checkpoint_path = download_ckpt_from_hf()
-    if checkpoint_path is not None:
-        with g_pathmgr.open(checkpoint_path, "rb") as f:
-            ckpt = torch.load(f, map_location="cpu", weights_only=True)
-        if "model" in ckpt and isinstance(ckpt["model"], dict):
-            ckpt = ckpt["model"]
-
-        missing_keys, unexpected_keys = model.load_state_dict(
-            ckpt, strict=strict_state_dict_loading
+    # Load checkpoint
+    if text_encoder_type:
+        # LiteText video workflow:
+        # 1. Swap text encoder with student variant (init with ctx=77 for ckpt compat)
+        student_text_enc = _create_student_text_encoder(
+            bpe_path, text_encoder_type, context_length=77
         )
-        if missing_keys:
-            print(f"Missing keys: {missing_keys}")
-        if unexpected_keys:
-            print(f"Unexpected keys: {unexpected_keys}")
+        model.detector.backbone.language_backbone = student_text_enc
+
+        # 2. Load fully-merged LiteText video checkpoint (detector + tracker + student text encoder)
+        if checkpoint_path is not None:
+            ckpt = _load_state_dict_from_path(checkpoint_path)
+            # Clean keys: remove student_trunk. prefix and retrofit MobileCLIP attention keys
+            cleaned = {}
+            for k, v in ckpt.items():
+                new_k = k.replace("student_trunk.", "")
+                # Retrofit MobileCLIP Manual Attention -> nn.MultiheadAttention
+                if "qkv_proj.weight" in new_k:
+                    new_k = new_k.replace("qkv_proj.weight", "attn.in_proj_weight")
+                elif "qkv_proj.bias" in new_k:
+                    new_k = new_k.replace("qkv_proj.bias", "attn.in_proj_bias")
+                elif "out_proj.weight" in new_k and "language_backbone" in new_k and "pre_norm_mha" in new_k:
+                    new_k = new_k.replace("out_proj.weight", "attn.out_proj.weight")
+                elif "out_proj.bias" in new_k and "language_backbone" in new_k and "pre_norm_mha" in new_k:
+                    new_k = new_k.replace("out_proj.bias", "attn.out_proj.bias")
+                cleaned[new_k] = v
+
+            missing_keys, unexpected_keys = model.load_state_dict(cleaned, strict=False)
+            if missing_keys:
+                print(f"Missing keys: {missing_keys}")
+            if unexpected_keys:
+                print(f"Unexpected keys: {unexpected_keys}")
+
+        # 3. Truncate context length
+        if text_encoder_context_length < 77:
+            model.detector.backbone.language_backbone.set_context_length(text_encoder_context_length)
+    else:
+        # Standard SAM3 video model loading
+        if load_from_HF and checkpoint_path is None:
+            checkpoint_path = download_ckpt_from_hf()
+        if checkpoint_path is not None:
+            with g_pathmgr.open(checkpoint_path, "rb") as f:
+                try:
+                    ckpt = torch.load(f, map_location="cpu", weights_only=True)
+                except TypeError:
+                    ckpt = torch.load(f, map_location="cpu")
+            if "model" in ckpt and isinstance(ckpt["model"], dict):
+                ckpt = ckpt["model"]
+
+            missing_keys, unexpected_keys = model.load_state_dict(
+                ckpt, strict=strict_state_dict_loading
+            )
+            if missing_keys:
+                print(f"Missing keys: {missing_keys}")
+            if unexpected_keys:
+                print(f"Unexpected keys: {unexpected_keys}")
 
     model.to(device=device)
     return model
@@ -1216,6 +1291,7 @@ def build_efficientsam3_video_model(
     backbone_type: str = "repvit",
     model_name: str = "m1.1",
     text_encoder_type: Optional[str] = None,
+    text_encoder_context_length: int = 77,
     enable_inst_interactivity: bool = True,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """Build EfficientSAM3 video model (main-branch implementation).
@@ -1237,7 +1313,8 @@ def build_efficientsam3_video_model(
         enable_inst_interactivity=enable_inst_interactivity,
     )
     if text_encoder_type:
-        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type)
+        # LiteText: initialize with context_length=77 for checkpoint weight compatibility
+        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type, context_length=77)
     else:
         text_encoder = _create_text_encoder(bpe_path)
 
@@ -1312,6 +1389,17 @@ def build_efficientsam3_video_model(
         cleaned_ckpt = {}
         for k, v in ckpt.items():
             new_k = k.replace("student_trunk.", "")
+
+            # Retrofit MobileCLIP Manual Attention -> nn.MultiheadAttention
+            if "qkv_proj.weight" in new_k:
+                new_k = new_k.replace("qkv_proj.weight", "attn.in_proj_weight")
+            elif "qkv_proj.bias" in new_k:
+                new_k = new_k.replace("qkv_proj.bias", "attn.in_proj_bias")
+            elif "out_proj.weight" in new_k and "language_backbone" in new_k and "pre_norm_mha" in new_k:
+                new_k = new_k.replace("out_proj.weight", "attn.out_proj.weight")
+            elif "out_proj.bias" in new_k and "language_backbone" in new_k and "pre_norm_mha" in new_k:
+                new_k = new_k.replace("out_proj.bias", "attn.out_proj.bias")
+
             cleaned_ckpt[new_k] = v
 
         if not any(
@@ -1327,6 +1415,10 @@ def build_efficientsam3_video_model(
             print(f"Missing keys: {missing_keys[:10]}")
         if unexpected_keys:
             print(f"Unexpected keys: {unexpected_keys[:10]}")
+
+    # Truncate text encoder context length after checkpoint loading
+    if text_encoder_type and text_encoder_context_length < 77:
+        model.detector.backbone.language_backbone.set_context_length(text_encoder_context_length)
 
     model.to(device=device)
     return model

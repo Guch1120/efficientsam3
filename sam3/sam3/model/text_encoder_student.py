@@ -60,6 +60,16 @@ class TextStudentEncoder(nn.Module):
         self.encoder = self.tensor_runner.encoder
         self.projector = self.tensor_runner.projector
 
+    def set_context_length(self, context_length: int):
+        """Set the text encoder context length and resize positional embeddings if needed.
+        
+        Args:
+            context_length (int): New context length
+        """
+        self.context_length = context_length
+        if hasattr(self.encoder, "resize_pos_embed"):
+            self.encoder.resize_pos_embed(context_length)
+
     def forward(self, text, input_boxes=None, device=None):
         # 1. Tokenize (CPU/Eager)
         tokenized = self.tokenizer(text, context_length=self.context_length).to(device)
