@@ -583,7 +583,7 @@ class LiteMLA(nn.Module):
 
     def relu_linear_att(self, qkv: torch.Tensor) -> torch.Tensor:
         B, _, H, W = list(qkv.size())
-        device_type = qkv.device.type if qkv.device.type == "cuda" else "cpu"
+        device_type = get_autocast_device_type(qkv.device)
         with torch.autocast(device_type=device_type, enabled=False):
             if qkv.dtype == torch.float16:
                 qkv = qkv.float()
@@ -622,7 +622,7 @@ class LiteMLA(nn.Module):
 
     def relu_quadratic_att(self, qkv: torch.Tensor) -> torch.Tensor:
         B, _, H, W = list(qkv.size())
-        device_type = qkv.device.type if qkv.device.type == "cuda" else "cpu"
+        device_type = get_autocast_device_type(qkv.device)
         with torch.autocast(device_type=device_type, enabled=False):
             qkv = torch.reshape(
                 qkv,
