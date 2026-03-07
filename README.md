@@ -304,7 +304,7 @@ SAM3-LiteText replaces the SAM3 text encoder with a lightweight distilled text e
 | **SAM3-LiteText-S1-16** | MobileCLIP-S1 | 16 | 63.53M | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/efficient_sam3_image_encoder_mobileclip_s1_ctx16.pt)/ [GDrive](https://drive.google.com/file/d/1zL6x91PzvupHtZdA68jYip6yAUel8MMV/view?usp=sharing) |
 | **SAM3-LiteText-L-16** | MobileCLIP2-L | 16 | 123.80M | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/efficient_sam3_image_encoder_mobileclip2_l_ctx16.pt)/ [GDrive](https://drive.google.com/file/d/1Mc4pk0FNCWwPTGoj1CCdAhkkNz02CUyY/view?usp=sharing) |
 
-> All models use the **SAM3 ViT-H image encoder** (353.72M vision params). The text encoder parameters shown represent the distilled student replacing the original 353.72M text encoder, achieving up to **88% parameter reduction**.
+> All models use the **SAM3 ViT-H image encoder** (461.84M vision params). The text encoder parameters shown represent the distilled student replacing the original 353.72M text encoder, achieving up to **88% parameter reduction**.
 
 ---
 
