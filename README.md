@@ -363,17 +363,44 @@ Metric: average token-level cosine similarity between student text features and 
 ONNX export for the **distilled image encoder** is now available.
 
 ```bash
-python sam3/scripts/export_efficientsam3_onnx.py   --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --output /tmp/efficientsam3_encoder_b0.onnx   --dynamic-batch
+python sam3/scripts/export_efficientsam3_onnx.py \
+  --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt \
+  --backbone-type efficientvit \
+  --model-name b0 \
+  --output /tmp/efficientsam3_encoder_b0.onnx \
+  --dynamic-batch
 ```
 
-For runtime optimization (latency + memory), we also provide a benchmark script to compare:
-- eager vs `torch.compile`
-- fp32 vs AMP mixed precision
-- contiguous vs `channels_last`
+For runtime optimization (latency + memory), use the benchmark script:
 
 ```bash
-python sam3/scripts/benchmark_inference_optimizations.py   --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --compile   --amp   --channels-last
+# 8GB GPU向けの推奨設定候補を比較
+python sam3/scripts/benchmark_inference_optimizations.py \
+  --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt \
+  --backbone-type efficientvit \
+  --model-name b0 \
+  --preset vram8 \
+  --vram-budget-gb 8
+
+# 16GB GPU向けの候補を比較
+python sam3/scripts/benchmark_inference_optimizations.py \
+  --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt \
+  --backbone-type efficientvit \
+  --model-name b0 \
+  --preset vram16 \
+  --vram-budget-gb 16
 ```
+
+### 目安（batch=1 / 1008x1008 / encoder-only）
+
+> 下記は一般的な CUDA GPU（例: L4/A10 クラス）での参考レンジです。実際の値は GPU 世代、ドライバ、PyTorch/ONNX Runtime バージョンで変動します。必ず上記ベンチで実測してください。
+
+| VRAM想定 | 設定 | 推論速度 (ms/img) | VRAM使用量 (GB) |
+|---|---|---:|---:|
+| 8GB | eager + AMP + channels_last | 18-35 | 3.5-6.5 |
+| 8GB | compile + AMP + channels_last | 14-28 | 4.0-7.5 |
+| 16GB | eager + FP32 | 28-55 | 6.0-10.0 |
+| 16GB | compile + AMP + channels_last | 12-24 | 4.0-8.0 |
 
 > Note: the current exporter targets the image encoder path first (the dominant compute block). Full end-to-end ONNX/CoreML export for all interactive/video branches is still in progress.
 
