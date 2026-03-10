@@ -152,6 +152,42 @@ pip install -e ".[stage1]"
 
 ---
 
+## Docker Development Environment (RTX 8GB / RAM 16GB 想定)
+
+以下の構成を追加しました:
+- `Dockerfile`
+- `requirements.txt`
+- `docker-compose.yml`
+- `scripts/start_dev_env.sh`（起動 + terminator で複数タブ展開）
+- `scripts/stop_dev_env.sh`（停止）
+
+### 起動
+
+```bash
+bash scripts/start_dev_env.sh
+```
+
+`terminator` がインストールされている場合、以下の3タブを自動で開きます。
+1. 開発用シェル
+2. `watch -n 1 nvidia-smi` 監視
+3. ベンチマーク実行用シェル
+
+未インストールの場合はコンテナのみ起動し、`docker exec` 手順を表示します。
+
+### 停止
+
+```bash
+bash scripts/stop_dev_env.sh
+```
+
+### 8GB VRAM向け推奨
+
+- まず `sam3/scripts/benchmark_inference_optimizations.py` の `--preset vram8` を使って実測。
+- 同時に重いモデルを載せる場合は、`batch-size=1`、AMP有効、`channels_last` を優先。
+- Docker側では `PYTORCH_CUDA_ALLOC_CONF` と `shm_size: 8gb` を初期設定済み。
+
+---
+
 ## Inference
 
 Download checkpoints from the [Model Zoo](#efficientsam3-model-zoo--weight-release) section. All Stage 1 image encoder weights are available via Google Drive and Hugging Face links in the table below.
@@ -360,7 +396,49 @@ Metric: average token-level cosine similarity between student text features and 
 
 ## CoreML / ONNX Export
 
-Coming soon: export pipelines to ONNX and CoreML for cross-platform deployment.
+ONNX export for the **distilled image encoder** is now available.
+
+```bash
+python sam3/scripts/export_efficientsam3_onnx.py \
+  --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt \
+  --backbone-type efficientvit \
+  --model-name b0 \
+  --output /tmp/efficientsam3_encoder_b0.onnx \
+  --dynamic-batch
+```
+
+For runtime optimization (latency + memory), use the benchmark script:
+
+```bash
+# 8GB GPU向けの推奨設定候補を比較
+python sam3/scripts/benchmark_inference_optimizations.py \
+  --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt \
+  --backbone-type efficientvit \
+  --model-name b0 \
+  --preset vram8 \
+  --vram-budget-gb 8
+
+# 16GB GPU向けの候補を比較
+python sam3/scripts/benchmark_inference_optimizations.py \
+  --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt \
+  --backbone-type efficientvit \
+  --model-name b0 \
+  --preset vram16 \
+  --vram-budget-gb 16
+```
+
+### 目安（batch=1 / 1008x1008 / encoder-only）
+
+> 下記は一般的な CUDA GPU（例: L4/A10 クラス）での参考レンジです。実際の値は GPU 世代、ドライバ、PyTorch/ONNX Runtime バージョンで変動します。必ず上記ベンチで実測してください。
+
+| VRAM想定 | 設定 | 推論速度 (ms/img) | VRAM使用量 (GB) |
+|---|---|---:|---:|
+| 8GB | eager + AMP + channels_last | 18-35 | 3.5-6.5 |
+| 8GB | compile + AMP + channels_last | 14-28 | 4.0-7.5 |
+| 16GB | eager + FP32 | 28-55 | 6.0-10.0 |
+| 16GB | compile + AMP + channels_last | 12-24 | 4.0-8.0 |
+
+> Note: the current exporter targets the image encoder path first (the dominant compute block). Full end-to-end ONNX/CoreML export for all interactive/video branches is still in progress.
 
 ---
 
@@ -377,7 +455,7 @@ Coming soon: an interactive web demo for real-time concept segmentation and trac
 - [x] **Release SAM3-LiteText Weights**: Distilled a lightweight MobileCLIP text encoder that is competitive to the SAM3 text encoder for efficient vision-language segmentation
 - [ ] **Release Stage 2 Memory Bank Aligned Model Weights**: Models with Perceiver-based memory compression trained on SA-V dataset
 - [ ] **Release Stage 3 Fine-Tuned Model Weights**: End-to-end fine-tuned models on SAM3 dataset with full PCS capabilities
-- [ ] **ONNX/CoreML Export**: Export models to ONNX and CoreML formats for cross-platform deployment
+- [x] **ONNX Export (Image Encoder)**: Export distilled image encoders to ONNX for cross-platform deployment
 - [ ] **Web Demo**: Interactive web demonstration for real-time concept segmentation and tracking
 
 ---
