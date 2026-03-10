@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import time
-from dataclasses import dataclass
 
 import torch
 
