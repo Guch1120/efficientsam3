@@ -360,7 +360,22 @@ Metric: average token-level cosine similarity between student text features and 
 
 ## CoreML / ONNX Export
 
-Coming soon: export pipelines to ONNX and CoreML for cross-platform deployment.
+ONNX export for the **distilled image encoder** is now available.
+
+```bash
+python sam3/scripts/export_efficientsam3_onnx.py   --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --output /tmp/efficientsam3_encoder_b0.onnx   --dynamic-batch
+```
+
+For runtime optimization (latency + memory), we also provide a benchmark script to compare:
+- eager vs `torch.compile`
+- fp32 vs AMP mixed precision
+- contiguous vs `channels_last`
+
+```bash
+python sam3/scripts/benchmark_inference_optimizations.py   --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --compile   --amp   --channels-last
+```
+
+> Note: the current exporter targets the image encoder path first (the dominant compute block). Full end-to-end ONNX/CoreML export for all interactive/video branches is still in progress.
 
 ---
 
@@ -377,7 +392,7 @@ Coming soon: an interactive web demo for real-time concept segmentation and trac
 - [x] **Release SAM3-LiteText Weights**: Distilled a lightweight MobileCLIP text encoder that is competitive to the SAM3 text encoder for efficient vision-language segmentation
 - [ ] **Release Stage 2 Memory Bank Aligned Model Weights**: Models with Perceiver-based memory compression trained on SA-V dataset
 - [ ] **Release Stage 3 Fine-Tuned Model Weights**: End-to-end fine-tuned models on SAM3 dataset with full PCS capabilities
-- [ ] **ONNX/CoreML Export**: Export models to ONNX and CoreML formats for cross-platform deployment
+- [x] **ONNX Export (Image Encoder)**: Export distilled image encoders to ONNX for cross-platform deployment
 - [ ] **Web Demo**: Interactive web demonstration for real-time concept segmentation and tracking
 
 ---
