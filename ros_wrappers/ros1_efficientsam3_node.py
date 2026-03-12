@@ -13,6 +13,12 @@ Request message type: std_msgs/String
 
 from __future__ import annotations
 
+from pathlib import Path
+import sys
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_REPO_ROOT))
+
 import argparse
 
 import cv2
@@ -24,8 +30,8 @@ from PIL import Image
 from sensor_msgs.msg import Image as RosImage
 from std_msgs.msg import String
 
-from sam3.model_builder import build_efficientsam3_image_model
-from sam3.model.sam3_image_processor import Sam3Processor
+from efficientsam.model_builder import build_efficientsam3_image_model
+from efficientsam.sam3_image_processor import Sam3Processor
 
 
 class EfficientSam3Ros1Node:

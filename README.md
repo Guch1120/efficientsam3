@@ -439,6 +439,21 @@ ros2 topic pub --once /efficientsam3/request std_msgs/msg/String "{data: ''}"
 
 ---
 
+### Import namespace note (ROS workspace conflicts)
+
+If your ROS workspace already has another `sam3` package, prefer the new `efficientsam` namespace in custom scripts:
+
+```python
+from efficientsam.model_builder import build_efficientsam3_image_model
+from efficientsam.sam3_image_processor import Sam3Processor
+```
+
+Also install this repo in editable mode to prioritize local modules:
+
+```bash
+pip install -e .
+```
+
 ## CoreML / ONNX Export
 
 ONNX export for the **distilled image encoder** is now available.
