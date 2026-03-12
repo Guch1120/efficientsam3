@@ -102,8 +102,16 @@ def _validate_checkpoint_path(checkpoint: str) -> Path:
     return ckpt
 
 
+def _check_runtime_dependencies() -> None:
+    # Keep this lightweight and explicit for common failure in mixed ROS/venv envs.
+    __import__("einops")
+
+
 def _run_once(args: argparse.Namespace, cfg: ProfileConfig, device: torch.device) -> tuple[float, float | None]:
     checkpoint_path = _validate_checkpoint_path(args.checkpoint)
+
+    _check_runtime_dependencies()
+    from efficientsam.model_builder import build_efficientsam3_image_model
 
     model = build_efficientsam3_image_model(
         checkpoint_path=checkpoint_path.as_posix(),

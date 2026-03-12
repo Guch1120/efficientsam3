@@ -7,8 +7,13 @@ which is typically the dominant compute block for image inference.
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
+import sys
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO_ROOT))
+
+import argparse
 
 import torch
 from torch import nn
@@ -143,7 +148,7 @@ def _validate_arch_args(checkpoint: Path, backbone_type: str, model_name: str) -
 
 def _check_onnx_export_dependencies() -> None:
     missing: list[str] = []
-    for pkg in ("onnx", "onnxscript"):
+    for pkg in ("onnx", "onnxscript", "einops"):
         try:
             __import__(pkg)
         except ModuleNotFoundError:
@@ -167,6 +172,8 @@ def main() -> None:
     _validate_arch_args(checkpoint_path, args.backbone_type, args.model_name)
 
     _check_onnx_export_dependencies()
+
+    from efficientsam.model_builder import build_efficientsam3_image_model
 
     model = build_efficientsam3_image_model(
         checkpoint_path=checkpoint_path.as_posix(),
