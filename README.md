@@ -394,6 +394,51 @@ Metric: average token-level cosine similarity between student text features and 
 ---
 
 
+## ROS1 / ROS2 Wrapper
+
+`ros_wrappers/` に以下を追加しました。
+- `ros1_efficientsam3_node.py`（`rospy`）
+- `ros2_efficientsam3_node.py`（`rclpy`）
+
+どちらも `sensor_msgs/Image` を購読し、推論マスクを `mono8` で publish します。
+`--text-prompt` を指定すると物体名プロンプトで推論し、未指定時は画像中心の positive point prompt を使います。
+
+### ROS1 実行例
+
+```bash
+# ROS1環境をsource後
+python ros_wrappers/ros1_efficientsam3_node.py   --checkpoint /models/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --input-topic /camera/color/image_raw   --output-topic /efficientsam3/mask
+
+# 物体名プロンプト（テキスト）を使う場合
+python ros_wrappers/ros1_efficientsam3_node.py \
+  --checkpoint /models/efficient_sam3_tinyvit_m_mobileclip_s1.pt \
+  --backbone-type tinyvit \
+  --model-name 11m \
+  --text-encoder-type MobileCLIP-S1 \
+  --text-prompt "person"
+```
+
+### ROS2 実行例
+
+```bash
+# ROS2環境をsource後
+python ros_wrappers/ros2_efficientsam3_node.py   --checkpoint /models/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --input-topic /camera/color/image_raw   --output-topic /efficientsam3/mask
+
+# 物体名プロンプト（テキスト）を使う場合
+python ros_wrappers/ros2_efficientsam3_node.py \
+  --checkpoint /models/efficient_sam3_tinyvit_m_mobileclip_s1.pt \
+  --backbone-type tinyvit \
+  --model-name 11m \
+  --text-encoder-type MobileCLIP-S1 \
+  --text-prompt "person"
+```
+
+> 注意: ROS関連依存（`rospy`/`rclpy`/`cv_bridge`/`sensor_msgs`）は、
+> 通常はROSディストリビューションの環境で提供されます。既存の `Dockerfile` は
+> 汎用CUDA/PyTorch用のため、ROS用途ではROSベースイメージを使うか、追加でROSを導入してください。
+
+---
+
 ## CoreML / ONNX Export
 
 ONNX export for the **distilled image encoder** is now available.
