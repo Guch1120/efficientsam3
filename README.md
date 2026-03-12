@@ -152,6 +152,42 @@ pip install -e ".[stage1]"
 
 ---
 
+## Docker Development Environment (RTX 8GB / RAM 16GB 想定)
+
+以下の構成を追加しました:
+- `Dockerfile`
+- `requirements.txt`
+- `docker-compose.yml`
+- `scripts/start_dev_env.sh`（起動 + terminator で複数タブ展開）
+- `scripts/stop_dev_env.sh`（停止）
+
+### 起動
+
+```bash
+bash scripts/start_dev_env.sh
+```
+
+`terminator` がインストールされている場合、以下の3タブを自動で開きます。
+1. 開発用シェル
+2. `watch -n 1 nvidia-smi` 監視
+3. ベンチマーク実行用シェル
+
+未インストールの場合はコンテナのみ起動し、`docker exec` 手順を表示します。
+
+### 停止
+
+```bash
+bash scripts/stop_dev_env.sh
+```
+
+### 8GB VRAM向け推奨
+
+- まず `sam3/scripts/benchmark_inference_optimizations.py` の `--preset vram8` を使って実測。
+- 同時に重いモデルを載せる場合は、`batch-size=1`、AMP有効、`channels_last` を優先。
+- Docker側では `PYTORCH_CUDA_ALLOC_CONF` と `shm_size: 8gb` を初期設定済み。
+
+---
+
 ## Inference
 
 Download checkpoints from the [Model Zoo](#efficientsam3-model-zoo--weight-release) section. All Stage 1 image encoder weights are available via Google Drive and Hugging Face links in the table below.
@@ -357,6 +393,66 @@ Metric: average token-level cosine similarity between student text features and 
 
 ---
 
+
+## ROS1 / ROS2 Wrapper
+
+`ros_wrappers/` に以下を追加しました。
+- `ros1_efficientsam3_node.py`（`rospy`）
+- `ros2_efficientsam3_node.py`（`rclpy`）
+
+どちらも `sensor_msgs/Image` を購読して**最新画像をキャッシュ**し、
+`request` トピックを受け取ったタイミングで推論して `mono8` マスクを publish します。
+
+- request メッセージ型: `std_msgs/String`
+- request の `data` が空文字: `--text-prompt` があればそれを使用、なければ中心点 positive point prompt
+- request の `data` が非空文字: その文字列をテキストプロンプトとして使用
+
+### ROS1 実行例
+
+```bash
+# ROS1環境をsource後
+python ros_wrappers/ros1_efficientsam3_node.py   --checkpoint /models/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --input-topic /camera/color/image_raw   --request-topic /efficientsam3/request   --output-topic /efficientsam3/mask
+
+# リクエスト送信（テキスト指定）
+rostopic pub -1 /efficientsam3/request std_msgs/String "data: 'person'"
+
+# リクエスト送信（空文字 => デフォルトprompt or 中心点）
+rostopic pub -1 /efficientsam3/request std_msgs/String "data: ''"
+```
+
+### ROS2 実行例
+
+```bash
+# ROS2環境をsource後
+python ros_wrappers/ros2_efficientsam3_node.py   --checkpoint /models/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --input-topic /camera/color/image_raw   --request-topic /efficientsam3/request   --output-topic /efficientsam3/mask
+
+# リクエスト送信（テキスト指定）
+ros2 topic pub --once /efficientsam3/request std_msgs/msg/String "{data: person}"
+
+# リクエスト送信（空文字 => デフォルトprompt or 中心点）
+ros2 topic pub --once /efficientsam3/request std_msgs/msg/String "{data: ''}"
+```
+
+> 注意: ROS関連依存（`rospy`/`rclpy`/`cv_bridge`/`sensor_msgs`/`std_msgs`）は、
+> 通常はROSディストリビューションの環境で提供されます。既存の `Dockerfile` は
+> 汎用CUDA/PyTorch用のため、ROS用途ではROSベースイメージを使うか、追加でROSを導入してください。
+
+---
+
+### Import namespace note (ROS workspace conflicts)
+
+If your ROS workspace already has another `sam3` package, prefer the new `efficientsam` namespace in custom scripts:
+
+```python
+from efficientsam.model_builder import build_efficientsam3_image_model
+from efficientsam.sam3_image_processor import Sam3Processor
+```
+
+Also install this repo in editable mode to prioritize local modules:
+
+```bash
+pip install -e .
+```
 
 ## CoreML / ONNX Export
 

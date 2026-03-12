@@ -7,12 +7,19 @@ and can run a preset profile for 8GB / 16GB VRAM planning.
 
 from __future__ import annotations
 
+from pathlib import Path
+import sys
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO_ROOT))
+
 import argparse
 import time
+from dataclasses import dataclass
 
 import torch
 
-from sam3.model_builder import build_efficientsam3_image_model
+from efficientsam.model_builder import build_efficientsam3_image_model
 
 
 @dataclass(frozen=True)

@@ -7,13 +7,18 @@ which is typically the dominant compute block for image inference.
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
+import sys
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO_ROOT))
+
+import argparse
 
 import torch
 from torch import nn
 
-from sam3.model_builder import build_efficientsam3_image_model
+from efficientsam.model_builder import build_efficientsam3_image_model
 
 
 class _EncoderOnnxWrapper(nn.Module):
