@@ -400,59 +400,44 @@ Metric: average token-level cosine similarity between student text features and 
 - `ros1_efficientsam3_node.py`（`rospy`）
 - `ros2_efficientsam3_node.py`（`rclpy`）
 
-どちらも `sensor_msgs/Image` を購読して**最新画像をキャッシュ**し、
-`request` トピックを受け取ったタイミングで推論して `mono8` マスクを publish します。
-
-- request メッセージ型: `std_msgs/String`
-- request の `data` が空文字: `--text-prompt` があればそれを使用、なければ中心点 positive point prompt
-- request の `data` が非空文字: その文字列をテキストプロンプトとして使用
+どちらも `sensor_msgs/Image` を購読し、推論マスクを `mono8` で publish します。
+`--text-prompt` を指定すると物体名プロンプトで推論し、未指定時は画像中心の positive point prompt を使います。
 
 ### ROS1 実行例
 
 ```bash
 # ROS1環境をsource後
-python ros_wrappers/ros1_efficientsam3_node.py   --checkpoint /models/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --input-topic /camera/color/image_raw   --request-topic /efficientsam3/request   --output-topic /efficientsam3/mask
+python ros_wrappers/ros1_efficientsam3_node.py   --checkpoint /models/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --input-topic /camera/color/image_raw   --output-topic /efficientsam3/mask
 
-# リクエスト送信（テキスト指定）
-rostopic pub -1 /efficientsam3/request std_msgs/String "data: 'person'"
-
-# リクエスト送信（空文字 => デフォルトprompt or 中心点）
-rostopic pub -1 /efficientsam3/request std_msgs/String "data: ''"
+# 物体名プロンプト（テキスト）を使う場合
+python ros_wrappers/ros1_efficientsam3_node.py \
+  --checkpoint /models/efficient_sam3_tinyvit_m_mobileclip_s1.pt \
+  --backbone-type tinyvit \
+  --model-name 11m \
+  --text-encoder-type MobileCLIP-S1 \
+  --text-prompt "person"
 ```
 
 ### ROS2 実行例
 
 ```bash
 # ROS2環境をsource後
-python ros_wrappers/ros2_efficientsam3_node.py   --checkpoint /models/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --input-topic /camera/color/image_raw   --request-topic /efficientsam3/request   --output-topic /efficientsam3/mask
+python ros_wrappers/ros2_efficientsam3_node.py   --checkpoint /models/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --input-topic /camera/color/image_raw   --output-topic /efficientsam3/mask
 
-# リクエスト送信（テキスト指定）
-ros2 topic pub --once /efficientsam3/request std_msgs/msg/String "{data: person}"
-
-# リクエスト送信（空文字 => デフォルトprompt or 中心点）
-ros2 topic pub --once /efficientsam3/request std_msgs/msg/String "{data: ''}"
+# 物体名プロンプト（テキスト）を使う場合
+python ros_wrappers/ros2_efficientsam3_node.py \
+  --checkpoint /models/efficient_sam3_tinyvit_m_mobileclip_s1.pt \
+  --backbone-type tinyvit \
+  --model-name 11m \
+  --text-encoder-type MobileCLIP-S1 \
+  --text-prompt "person"
 ```
 
-> 注意: ROS関連依存（`rospy`/`rclpy`/`cv_bridge`/`sensor_msgs`/`std_msgs`）は、
+> 注意: ROS関連依存（`rospy`/`rclpy`/`cv_bridge`/`sensor_msgs`）は、
 > 通常はROSディストリビューションの環境で提供されます。既存の `Dockerfile` は
 > 汎用CUDA/PyTorch用のため、ROS用途ではROSベースイメージを使うか、追加でROSを導入してください。
 
 ---
-
-### Import namespace note (ROS workspace conflicts)
-
-If your ROS workspace already has another `sam3` package, prefer the new `efficientsam` namespace in custom scripts:
-
-```python
-from efficientsam.model_builder import build_efficientsam3_image_model
-from efficientsam.sam3_image_processor import Sam3Processor
-```
-
-Also install this repo in editable mode to prioritize local modules:
-
-```bash
-pip install -e .
-```
 
 ## CoreML / ONNX Export
 
@@ -466,14 +451,6 @@ python sam3/scripts/export_efficientsam3_onnx.py \
   --output /tmp/efficientsam3_encoder_b0.onnx \
   --dynamic-batch
 ```
-> `--checkpoint` の `/path/to/...` はプレースホルダーです。実在する `.pt` / `.pth` の絶対パスに置き換えてください。
-
-> 重要: `--checkpoint` と `--backbone-type` / `--model-name` は対応する組み合わせにしてください。
-> 例: `efficient_sam3_tinyvit_21m_...pth` を使う場合は `--backbone-type tinyvit --model-name 21m`。
-
-> ONNX書き出しには `onnx` と `onnxscript` が必要です。
-> 未導入なら `pip install onnx onnxscript` を実行してください。
-
 
 For runtime optimization (latency + memory), use the benchmark script:
 
