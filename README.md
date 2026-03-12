@@ -471,6 +471,9 @@ python sam3/scripts/export_efficientsam3_onnx.py \
 > 重要: `--checkpoint` と `--backbone-type` / `--model-name` は対応する組み合わせにしてください。
 > 例: `efficient_sam3_tinyvit_21m_...pth` を使う場合は `--backbone-type tinyvit --model-name 21m`。
 
+> ONNX書き出しには `onnx` と `onnxscript` が必要です。
+> 未導入なら `pip install onnx onnxscript` を実行してください。
+
 
 For runtime optimization (latency + memory), use the benchmark script:
 

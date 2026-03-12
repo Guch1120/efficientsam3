@@ -146,6 +146,23 @@ def _validate_arch_args(checkpoint: Path, backbone_type: str, model_name: str) -
             "Use matching backbone/model flags."
         )
 
+def _check_onnx_export_dependencies() -> None:
+    missing: list[str] = []
+    for pkg in ("onnx", "onnxscript"):
+        try:
+            __import__(pkg)
+        except ModuleNotFoundError:
+            missing.append(pkg)
+    if missing:
+        pkgs = " ".join(missing)
+        raise ModuleNotFoundError(
+            "Missing ONNX export dependencies: "
+            f"{', '.join(missing)}. "
+            "Install them with: "
+            f"pip install {pkgs}"
+        )
+
+
 def main() -> None:
     args = _parse_args()
     output_path = Path(args.output)
@@ -153,6 +170,8 @@ def main() -> None:
 
     checkpoint_path = _validate_checkpoint_path(args.checkpoint)
     _validate_arch_args(checkpoint_path, args.backbone_type, args.model_name)
+
+    _check_onnx_export_dependencies()
 
     model = build_efficientsam3_image_model(
         checkpoint_path=checkpoint_path.as_posix(),
