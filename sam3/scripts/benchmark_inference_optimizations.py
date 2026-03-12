@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass
 
 import torch
+from torch import nn
 
 from efficientsam.model_builder import build_efficientsam3_image_model
 
@@ -28,6 +29,26 @@ class ProfileConfig:
     compile: bool
     amp: bool
     channels_last: bool
+
+
+def _get_visual_trunk(model: nn.Module) -> nn.Module:
+    """Return student visual trunk across legacy/current backbone field names."""
+    backbone = getattr(model, "backbone", None)
+    if backbone is None:
+        raise AttributeError("model has no `backbone` attribute")
+
+    vision_backbone = getattr(backbone, "vision_backbone", None)
+    if vision_backbone is None:
+        vision_backbone = getattr(backbone, "visual", None)  # legacy name fallback
+    if vision_backbone is None:
+        raise AttributeError(
+            "Could not find vision backbone on model.backbone (expected `vision_backbone` or `visual`)."
+        )
+
+    trunk = getattr(vision_backbone, "trunk", None)
+    if trunk is None:
+        raise AttributeError("vision backbone has no `trunk` attribute")
+    return trunk
 
 
 def _parse_args() -> argparse.Namespace:
@@ -66,9 +87,26 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _validate_checkpoint_path(checkpoint: str) -> Path:
+    ckpt = Path(checkpoint).expanduser()
+    if str(ckpt).startswith('/path/to/'):
+        raise FileNotFoundError(
+            f"Checkpoint path looks like a README placeholder: {checkpoint}. "
+            "Please pass a real .pt/.pth path."
+        )
+    if not ckpt.exists():
+        raise FileNotFoundError(
+            f"Checkpoint not found: {ckpt}. "
+            "Please verify --checkpoint points to an existing file."
+        )
+    return ckpt
+
+
 def _run_once(args: argparse.Namespace, cfg: ProfileConfig, device: torch.device) -> tuple[float, float | None]:
+    checkpoint_path = _validate_checkpoint_path(args.checkpoint)
+
     model = build_efficientsam3_image_model(
-        checkpoint_path=args.checkpoint,
+        checkpoint_path=checkpoint_path.as_posix(),
         backbone_type=args.backbone_type,
         model_name=args.model_name,
         enable_segmentation=False,
@@ -77,7 +115,7 @@ def _run_once(args: argparse.Namespace, cfg: ProfileConfig, device: torch.device
         compile=cfg.compile,
         device=device,
     )
-    encoder = model.backbone.visual.trunk.eval()
+    encoder = _get_visual_trunk(model).eval()
 
     x = torch.randn(args.batch_size, 3, args.img_size, args.img_size, device=device)
     if cfg.channels_last:

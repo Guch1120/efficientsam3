@@ -466,6 +466,11 @@ python sam3/scripts/export_efficientsam3_onnx.py \
   --output /tmp/efficientsam3_encoder_b0.onnx \
   --dynamic-batch
 ```
+> `--checkpoint` の `/path/to/...` はプレースホルダーです。実在する `.pt` / `.pth` の絶対パスに置き換えてください。
+
+> 重要: `--checkpoint` と `--backbone-type` / `--model-name` は対応する組み合わせにしてください。
+> 例: `efficient_sam3_tinyvit_21m_...pth` を使う場合は `--backbone-type tinyvit --model-name 21m`。
+
 
 For runtime optimization (latency + memory), use the benchmark script:
 
