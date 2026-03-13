@@ -35,7 +35,6 @@ from sam3.model.sam1_task_predictor import SAM3InteractiveImagePredictor
 from sam3.model.sam3_image import Sam3Image, Sam3ImageOnVideoMultiGPU
 from sam3.model.sam3_tracking_predictor import Sam3TrackerPredictor
 from sam3.model.sam3_video_inference import Sam3VideoInferenceWithInstanceInteractivity
-from sam3.model.sam3_video_predictor import Sam3VideoPredictorMultiGPU
 from sam3.model.text_encoder_ve import VETextEncoder
 from sam3.model.text_encoder_student import TextStudentEncoder
 from sam3.model.tokenizer_ve import SimpleTokenizer
@@ -1411,6 +1410,8 @@ def _load_state_dict_from_path(checkpoint_path: str) -> dict:
 
 
 def build_sam3_video_predictor(*model_args, gpus_to_use=None, **model_kwargs):
+    from sam3.model.sam3_video_predictor import Sam3VideoPredictorMultiGPU
+
     return Sam3VideoPredictorMultiGPU(
         *model_args, gpus_to_use=gpus_to_use, **model_kwargs
     )
@@ -1608,6 +1609,8 @@ def build_efficientsam3_video_predictor(
     gpus_to_use=None,
     **kwargs,
 ):
+    from sam3.model.sam3_video_predictor import Sam3VideoPredictorMultiGPU
+
     model = build_efficientsam3_video_model(
         checkpoint_path=checkpoint_path,
         load_from_HF=load_from_HF,

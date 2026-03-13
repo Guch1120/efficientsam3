@@ -52,6 +52,11 @@ stage1 = [
     # Used by some SAM1-compat utilities (e.g. EfficientViT SAM wrapper).
     "segment-anything",
 ]
+onnx = [
+    "onnx>=1.16.0",
+    "onnxscript>=0.1.0",
+    "onnxruntime>=1.20.0",
+]
 
 # Optional dependency: only required for the SAM1-compat EfficientViT wrapper
 # under sam3/backbones/efficientvit/efficientvit/sam.py
@@ -71,4 +76,3 @@ Homepage = "https://github.com/SimonZeng7108/efficientsam3"
 
 [tool.setuptools.packages.find]
 include = ["stage1*", "sam3*", "efficientsam*"]
-

@@ -144,6 +144,9 @@ pip install torch==2.7.0 torchvision torchaudio
 # Install repo dependencies via the root pyproject (brings in SAM3 + Stage-1 extras)
 pip install -e ".[stage1]"
 
+# If you plan to use ONNX export/runtime as well:
+pip install -e ".[stage1,onnx]"
+
 # Note: the Stage-1 extra includes the SAM1 package dependency
 # (PyPI name: segment-anything, import name: segment_anything).
 # If your environment cannot resolve it from PyPI, install the vendored repo instead:
@@ -472,10 +475,16 @@ python sam3/scripts/export_efficientsam3_onnx.py \
 > 例: `efficient_sam3_tinyvit_21m_...pth` を使う場合は `--backbone-type tinyvit --model-name 21m`。
 
 > ONNX書き出しには `onnx` と `onnxscript` が必要です。
-> 未導入なら `pip install onnx onnxscript` を実行してください。
+> ONNX Runtime で実行する場合は `onnxruntime` も必要です。
+> まとめて入れるなら `pip install -e ".[onnx]"` を実行してください。
 
 > `ModuleNotFoundError: No module named einops` が出る場合は、実行しているPythonに依存が入っていません。
 > `python -m pip install -r requirements.txt` を実行し、`python` と `python3` が同じ環境を指すか `python -c "import sys; print(sys.executable)"` で確認してください。
+
+> 使い分け:
+> - `export_efficientsam3_onnx.py`: 画像 encoder のみを ONNX 化。まず最初に試すべきルート。
+> - `export_efficientsam3_decoder_onnx.py`: encoder 出力 (`image_embed`) を受ける neck/decoder 部分の ONNX 化。
+> - `export_efficientsam3_text_segment_onnx.py`: 固定されたテキスト prompt を焼き込んだ downstream ONNX。毎回違う prompt は渡せません。
 
 
 ### Encoder server + Decoder export/run (ONNX Runtime)
@@ -650,4 +659,3 @@ Organizations and projects using EfficientSAM3:
 </table>
 
 > **Note:** If you're using EfficientSAM3 in your work, please acknowledge us in your publications or projects. We're happy to promote your work here! Contact us to be featured in this section.
-
