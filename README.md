@@ -497,6 +497,9 @@ python sam3/scripts/export_efficientsam3_decoder_onnx.py \
   --output /tmp/efficientsam3_decoder_tinyvit_21m.onnx \
   --dynamic-batch --opset 18
 
+# 2b) Export fixed-prompt text-conditioned downstream ONNX (decoder+mask head)
+python sam3/scripts/export_efficientsam3_text_segment_onnx.py   --checkpoint /path/to/efficient_sam3_tinyvit_21m_mobileclip_s1.pth   --backbone-type tinyvit   --model-name 21m   --text-encoder-type MobileCLIP-S1   --text-prompt "person"   --output /tmp/efficientsam3_textseg_person_tinyvit_21m.onnx   --dynamic-batch --opset 18
+
 # 3) Run encoder inference server (POST /encode with .npy tensor)
 python sam3/scripts/onnx_encoder_server.py \
   --model /tmp/efficientsam3_encoder_tinyvit_21m.onnx \
@@ -512,6 +515,10 @@ python sam3/scripts/onnx_encoder_server.py \
 
 # Request text-prompt segmentation mask (returns .npy mono mask)
 # POST /segment_text?prompt=person
+
+# (optional) Fully-ONNX fixed prompt mask endpoint
+python sam3/scripts/onnx_encoder_server.py   --model /tmp/efficientsam3_encoder_tinyvit_21m.onnx   --text-seg-onnx /tmp/efficientsam3_textseg_person_tinyvit_21m.onnx   --host 0.0.0.0 --port 18080
+# POST /segment_text_onnx
 
 # 4) Run decoder ONNX on saved embedding
 python sam3/scripts/run_onnx_decoder.py \

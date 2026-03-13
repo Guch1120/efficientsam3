@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--model-name", default="21m")
     p.add_argument("--text-encoder-type", default=None)
+    p.add_argument("--text-seg-onnx", default=None, help="Fixed-prompt text-seg ONNX path")
     return p.parse_args()
 
 
@@ -67,6 +68,8 @@ class Handler(BaseHTTPRequestHandler):
     inp_name: str = "image"
     model = None
     processor = None
+    text_seg_sess: ort.InferenceSession = None
+    text_seg_inp: str = "image"
 
     def _read_npy(self) -> np.ndarray:
         n = int(self.headers.get("Content-Length", "0"))
@@ -101,6 +104,28 @@ class Handler(BaseHTTPRequestHandler):
                     x = x.astype(np.float32)
                 y = self.sess.run(None, {self.inp_name: x})[0]
                 self._write_npy(y, code=200)
+            except Exception as e:
+                self._write_text(str(e), code=400)
+            return
+
+        if parsed.path == "/segment_text_onnx":
+            if self.text_seg_sess is None:
+                self._write_text(
+                    "Text ONNX endpoint is disabled. Start server with --text-seg-onnx.",
+                    code=400,
+                )
+                return
+            try:
+                img = _to_hwc_uint8_image(self._read_npy())
+                x = img.astype(np.float32) / 255.0
+                x = (x - 0.5) / 0.5
+                x = np.transpose(x, (2, 0, 1))[None, ...]
+                pred_masks, pred_logits = self.text_seg_sess.run(None, {self.text_seg_inp: x})
+                # expected shapes: [B,Q,H,W], [B,Q,1]
+                score = 1.0 / (1.0 + np.exp(-pred_logits[0, :, 0]))
+                idx = int(np.argmax(score))
+                mask = (pred_masks[0, idx] > 0).astype(np.uint8) * 255
+                self._write_npy(mask, code=200)
             except Exception as e:
                 self._write_text(str(e), code=400)
             return
@@ -148,6 +173,11 @@ def main() -> None:
     Handler.sess = sess
     Handler.inp_name = sess.get_inputs()[0].name
 
+    if args.text_seg_onnx:
+        t_sess = ort.InferenceSession(args.text_seg_onnx, providers=["CPUExecutionProvider"])
+        Handler.text_seg_sess = t_sess
+        Handler.text_seg_inp = t_sess.get_inputs()[0].name
+
     if args.pytorch_checkpoint:
         from efficientsam.model_builder import build_efficientsam3_image_model
         from efficientsam.sam3_image_processor import Sam3Processor
@@ -168,6 +198,8 @@ def main() -> None:
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Encoder server on http://{args.host}:{args.port}")
     print("POST /encode for encoder embedding")
+    if Handler.text_seg_sess is not None:
+        print("POST /segment_text_onnx for fixed-prompt ONNX text mask")
     if Handler.model is not None:
         print("POST /segment_text?prompt=person for text-prompt mask")
     srv.serve_forever()
