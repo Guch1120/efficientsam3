@@ -18,6 +18,7 @@ import argparse
 import torch
 from torch import nn
 
+from efficientsam.model_builder import build_efficientsam3_image_model
 
 
 class _EncoderOnnxWrapper(nn.Module):
