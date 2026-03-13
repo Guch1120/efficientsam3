@@ -152,6 +152,42 @@ pip install -e ".[stage1]"
 
 ---
 
+## Docker Development Environment (RTX 8GB / RAM 16GB 想定)
+
+以下の構成を追加しました:
+- `Dockerfile`
+- `requirements.txt`
+- `docker-compose.yml`
+- `scripts/start_dev_env.sh`（起動 + terminator で複数タブ展開）
+- `scripts/stop_dev_env.sh`（停止）
+
+### 起動
+
+```bash
+bash scripts/start_dev_env.sh
+```
+
+`terminator` がインストールされている場合、以下の3タブを自動で開きます。
+1. 開発用シェル
+2. `watch -n 1 nvidia-smi` 監視
+3. ベンチマーク実行用シェル
+
+未インストールの場合はコンテナのみ起動し、`docker exec` 手順を表示します。
+
+### 停止
+
+```bash
+bash scripts/stop_dev_env.sh
+```
+
+### 8GB VRAM向け推奨
+
+- まず `sam3/scripts/benchmark_inference_optimizations.py` の `--preset vram8` を使って実測。
+- 同時に重いモデルを載せる場合は、`batch-size=1`、AMP有効、`channels_last` を優先。
+- Docker側では `PYTORCH_CUDA_ALLOC_CONF` と `shm_size: 8gb` を初期設定済み。
+
+---
+
 ## Inference
 
 Download checkpoints from the [Model Zoo](#efficientsam3-model-zoo--weight-release) section. All Stage 1 image encoder weights are available via Google Drive and Hugging Face links in the table below.
@@ -358,9 +394,171 @@ Metric: average token-level cosine similarity between student text features and 
 ---
 
 
+## ROS1 / ROS2 Wrapper
+
+`ros_wrappers/` に以下を追加しました。
+- `ros1_efficientsam3_node.py`（`rospy`）
+- `ros2_efficientsam3_node.py`（`rclpy`）
+
+どちらも `sensor_msgs/Image` を購読して**最新画像をキャッシュ**し、
+`request` トピックを受け取ったタイミングで推論して `mono8` マスクを publish します。
+
+- request メッセージ型: `std_msgs/String`
+- request の `data` が空文字: `--text-prompt` があればそれを使用、なければ中心点 positive point prompt
+- request の `data` が非空文字: その文字列をテキストプロンプトとして使用
+
+### ROS1 実行例
+
+```bash
+# ROS1環境をsource後
+python ros_wrappers/ros1_efficientsam3_node.py   --checkpoint /models/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --input-topic /camera/color/image_raw   --request-topic /efficientsam3/request   --output-topic /efficientsam3/mask
+
+# リクエスト送信（テキスト指定）
+rostopic pub -1 /efficientsam3/request std_msgs/String "data: 'person'"
+
+# リクエスト送信（空文字 => デフォルトprompt or 中心点）
+rostopic pub -1 /efficientsam3/request std_msgs/String "data: ''"
+```
+
+### ROS2 実行例
+
+```bash
+# ROS2環境をsource後
+python ros_wrappers/ros2_efficientsam3_node.py   --checkpoint /models/efficient_sam3_efficientvit_b0.pt   --backbone-type efficientvit   --model-name b0   --input-topic /camera/color/image_raw   --request-topic /efficientsam3/request   --output-topic /efficientsam3/mask
+
+# リクエスト送信（テキスト指定）
+ros2 topic pub --once /efficientsam3/request std_msgs/msg/String "{data: person}"
+
+# リクエスト送信（空文字 => デフォルトprompt or 中心点）
+ros2 topic pub --once /efficientsam3/request std_msgs/msg/String "{data: ''}"
+```
+
+> 注意: ROS関連依存（`rospy`/`rclpy`/`cv_bridge`/`sensor_msgs`/`std_msgs`）は、
+> 通常はROSディストリビューションの環境で提供されます。既存の `Dockerfile` は
+> 汎用CUDA/PyTorch用のため、ROS用途ではROSベースイメージを使うか、追加でROSを導入してください。
+
+---
+
+### Import namespace note (ROS workspace conflicts)
+
+If your ROS workspace already has another `sam3` package, prefer the new `efficientsam` namespace in custom scripts:
+
+```python
+from efficientsam.model_builder import build_efficientsam3_image_model
+from efficientsam.sam3_image_processor import Sam3Processor
+```
+
+Also install this repo in editable mode to prioritize local modules:
+
+```bash
+pip install -e .
+```
+
 ## CoreML / ONNX Export
 
-Coming soon: export pipelines to ONNX and CoreML for cross-platform deployment.
+ONNX export for the **distilled image encoder** is now available.
+
+```bash
+python sam3/scripts/export_efficientsam3_onnx.py \
+  --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt \
+  --backbone-type efficientvit \
+  --model-name b0 \
+  --output /tmp/efficientsam3_encoder_b0.onnx \
+  --dynamic-batch
+```
+> `--checkpoint` の `/path/to/...` はプレースホルダーです。実在する `.pt` / `.pth` の絶対パスに置き換えてください。
+
+> 重要: `--checkpoint` と `--backbone-type` / `--model-name` は対応する組み合わせにしてください。
+> 例: `efficient_sam3_tinyvit_21m_...pth` を使う場合は `--backbone-type tinyvit --model-name 21m`。
+
+> ONNX書き出しには `onnx` と `onnxscript` が必要です。
+> 未導入なら `pip install onnx onnxscript` を実行してください。
+
+> `ModuleNotFoundError: No module named einops` が出る場合は、実行しているPythonに依存が入っていません。
+> `python -m pip install -r requirements.txt` を実行し、`python` と `python3` が同じ環境を指すか `python -c "import sys; print(sys.executable)"` で確認してください。
+
+
+### Encoder server + Decoder export/run (ONNX Runtime)
+
+```bash
+# 1) Export encoder ONNX
+python sam3/scripts/export_efficientsam3_onnx.py \
+  --checkpoint /path/to/efficient_sam3_tinyvit_21m_mobileclip_s1.pth \
+  --backbone-type tinyvit \
+  --model-name 21m \
+  --output /tmp/efficientsam3_encoder_tinyvit_21m.onnx \
+  --dynamic-batch --opset 18
+
+# 2) Export decoder(neck) ONNX that consumes image_embed
+python sam3/scripts/export_efficientsam3_decoder_onnx.py \
+  --checkpoint /path/to/efficient_sam3_tinyvit_21m_mobileclip_s1.pth \
+  --backbone-type tinyvit \
+  --model-name 21m \
+  --output /tmp/efficientsam3_decoder_tinyvit_21m.onnx \
+  --dynamic-batch --opset 18
+
+# 2b) Export fixed-prompt text-conditioned downstream ONNX (decoder+mask head)
+python sam3/scripts/export_efficientsam3_text_segment_onnx.py   --checkpoint /path/to/efficient_sam3_tinyvit_21m_mobileclip_s1.pth   --backbone-type tinyvit   --model-name 21m   --text-encoder-type MobileCLIP-S1   --text-prompt "person"   --output /tmp/efficientsam3_textseg_person_tinyvit_21m.onnx   --dynamic-batch --opset 18
+
+# 3) Run encoder inference server (POST /encode with .npy tensor)
+python sam3/scripts/onnx_encoder_server.py \
+  --model /tmp/efficientsam3_encoder_tinyvit_21m.onnx \
+  --host 0.0.0.0 --port 18080
+
+# (optional) Enable text-prompt mask endpoint in same server
+python sam3/scripts/onnx_encoder_server.py \
+  --model /tmp/efficientsam3_encoder_tinyvit_21m.onnx \
+  --pytorch-checkpoint /path/to/efficient_sam3_tinyvit_21m_mobileclip_s1.pth \
+  --backbone-type tinyvit --model-name 21m \
+  --text-encoder-type MobileCLIP-S1 \
+  --host 0.0.0.0 --port 18080
+
+# Request text-prompt segmentation mask (returns .npy mono mask)
+# POST /segment_text?prompt=person
+
+# (optional) Fully-ONNX fixed prompt mask endpoint
+python sam3/scripts/onnx_encoder_server.py   --model /tmp/efficientsam3_encoder_tinyvit_21m.onnx   --text-seg-onnx /tmp/efficientsam3_textseg_person_tinyvit_21m.onnx   --host 0.0.0.0 --port 18080
+# POST /segment_text_onnx
+
+# 4) Run decoder ONNX on saved embedding
+python sam3/scripts/run_onnx_decoder.py \
+  --model /tmp/efficientsam3_decoder_tinyvit_21m.onnx \
+  --input /tmp/image_embed.npy \
+  --output /tmp/decoder_outputs.npz
+```
+
+For runtime optimization (latency + memory), use the benchmark script:
+
+```bash
+# 8GB GPU向けの推奨設定候補を比較
+python sam3/scripts/benchmark_inference_optimizations.py \
+  --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt \
+  --backbone-type efficientvit \
+  --model-name b0 \
+  --preset vram8 \
+  --vram-budget-gb 8
+
+# 16GB GPU向けの候補を比較
+python sam3/scripts/benchmark_inference_optimizations.py \
+  --checkpoint /path/to/efficient_sam3_efficientvit_b0.pt \
+  --backbone-type efficientvit \
+  --model-name b0 \
+  --preset vram16 \
+  --vram-budget-gb 16
+```
+
+### 目安（batch=1 / 1008x1008 / encoder-only）
+
+> 下記は一般的な CUDA GPU（例: L4/A10 クラス）での参考レンジです。実際の値は GPU 世代、ドライバ、PyTorch/ONNX Runtime バージョンで変動します。必ず上記ベンチで実測してください。
+
+| VRAM想定 | 設定 | 推論速度 (ms/img) | VRAM使用量 (GB) |
+|---|---|---:|---:|
+| 8GB | eager + AMP + channels_last | 18-35 | 3.5-6.5 |
+| 8GB | compile + AMP + channels_last | 14-28 | 4.0-7.5 |
+| 16GB | eager + FP32 | 28-55 | 6.0-10.0 |
+| 16GB | compile + AMP + channels_last | 12-24 | 4.0-8.0 |
+
+> Note: the current exporter targets the image encoder path first (the dominant compute block). Full end-to-end ONNX/CoreML export for all interactive/video branches is still in progress.
 
 ---
 
@@ -377,7 +575,7 @@ Coming soon: an interactive web demo for real-time concept segmentation and trac
 - [x] **Release SAM3-LiteText Weights**: Distilled a lightweight MobileCLIP text encoder that is competitive to the SAM3 text encoder for efficient vision-language segmentation
 - [ ] **Release Stage 2 Memory Bank Aligned Model Weights**: Models with Perceiver-based memory compression trained on SA-V dataset
 - [ ] **Release Stage 3 Fine-Tuned Model Weights**: End-to-end fine-tuned models on SAM3 dataset with full PCS capabilities
-- [ ] **ONNX/CoreML Export**: Export models to ONNX and CoreML formats for cross-platform deployment
+- [x] **ONNX Export (Image Encoder)**: Export distilled image encoders to ONNX for cross-platform deployment
 - [ ] **Web Demo**: Interactive web demonstration for real-time concept segmentation and tracking
 
 ---

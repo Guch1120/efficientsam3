@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  efficientsam3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: efficientsam3:local
+    container_name: efficientsam3-dev
+    working_dir: /workspace/efficientsam3
+    tty: true
+    stdin_open: true
+    shm_size: "8gb"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:64,garbage_collection_threshold:0.8,expandable_segments:True
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ./:/workspace/efficientsam3
+    command: bash
