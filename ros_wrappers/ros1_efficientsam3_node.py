@@ -49,7 +49,7 @@ class EfficientSam3Ros1Node:
             device=self.device,
             text_encoder_type=args.text_encoder_type,
         )
-        self.processor = Sam3Processor(self.model)
+        self.processor = Sam3Processor(self.model, device=self.device)
 
         self.point_x = args.point_x
         self.point_y = args.point_y

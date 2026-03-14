@@ -156,8 +156,16 @@ class Handler(BaseHTTPRequestHandler):
                     masks = state["masks"]
                     scores = state["scores"]
 
-                best_idx = int(np.argmax(scores))
-                mask = (masks[best_idx] > 0).astype(np.uint8) * 255
+                if scores.numel() == 0:
+                    empty_mask = np.zeros(img.shape[:2], dtype=np.uint8)
+                    self._write_npy(empty_mask, code=200)
+                    return
+
+                best_idx = int(torch.argmax(scores).item())
+                mask = masks[best_idx].detach().cpu().numpy()
+                if mask.ndim == 3 and mask.shape[0] == 1:
+                    mask = mask[0]
+                mask = (mask > 0).astype(np.uint8) * 255
                 self._write_npy(mask, code=200)
             except Exception as e:
                 self._write_text(str(e), code=400)
@@ -193,7 +201,7 @@ def main() -> None:
             device="cpu",
         )
         Handler.model = model
-        Handler.processor = Sam3Processor(model)
+        Handler.processor = Sam3Processor(model, device="cpu")
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Encoder server on http://{args.host}:{args.port}")
