@@ -51,7 +51,11 @@ class EfficientSam3Ros2Node(Node):
             device=self.device,
             text_encoder_type=args.text_encoder_type,
         )
-        self.processor = Sam3Processor(self.model, device=self.device)
+        self.processor = Sam3Processor(
+            self.model,
+            device=self.device,
+            confidence_threshold=args.confidence_threshold,
+        )
 
         self.point_x = args.point_x
         self.point_y = args.point_y
@@ -145,6 +149,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--point-x", type=float, default=None)
     parser.add_argument("--point-y", type=float, default=None)
     parser.add_argument("--text-prompt", default=None, help="default prompt (e.g. person)")
+    parser.add_argument("--confidence-threshold", type=float, default=0.5)
     parser.add_argument(
         "--text-encoder-type",
         default=None,

@@ -37,6 +37,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--model-name", default="21m")
     p.add_argument("--text-encoder-type", default=None)
     p.add_argument("--text-seg-onnx", default=None, help="Fixed-prompt text-seg ONNX path")
+    p.add_argument(
+        "--confidence-threshold",
+        type=float,
+        default=0.5,
+        help="Mask presence threshold for PyTorch text endpoint",
+    )
     return p.parse_args()
 
 
@@ -201,7 +207,11 @@ def main() -> None:
             device="cpu",
         )
         Handler.model = model
-        Handler.processor = Sam3Processor(model, device="cpu")
+        Handler.processor = Sam3Processor(
+            model,
+            device="cpu",
+            confidence_threshold=args.confidence_threshold,
+        )
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Encoder server on http://{args.host}:{args.port}")

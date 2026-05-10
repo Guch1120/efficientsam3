@@ -124,12 +124,12 @@ def _infer_arch_from_checkpoint_name(checkpoint: Path) -> tuple[str, str] | None
         if "_21m" in name or "_l_" in name:
             return ("tinyvit", "21m")
     if "repvit" in name:
-        if "m0.9" in name or "_s" in name:
-            return ("repvit", "m0.9")
-        if "m1.1" in name or "_m" in name:
-            return ("repvit", "m1.1")
-        if "m2.3" in name or "_l" in name:
+        if "m2.3" in name or "m2_3" in name or "_l" in name:
             return ("repvit", "m2.3")
+        if "m1.1" in name or "m1_1" in name or "_m" in name:
+            return ("repvit", "m1.1")
+        if "m0.9" in name or "m0_9" in name or "_s" in name:
+            return ("repvit", "m0.9")
     return None
 
 

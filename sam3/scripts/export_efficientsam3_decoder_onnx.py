@@ -20,9 +20,12 @@ from torch import nn
 
 
 class _NeckDecoderWrapper(nn.Module):
-    def __init__(self, vision_backbone: nn.Module):
+    def __init__(self, vision_backbone: nn.Module, scalp: int = 0):
         super().__init__()
-        self.convs = vision_backbone.convs
+        convs = list(vision_backbone.convs)
+        if scalp > 0:
+            convs = convs[:-scalp]
+        self.convs = nn.ModuleList(convs)
         self.position_encoding = vision_backbone.position_encoding
 
     def forward(self, image_embed: torch.Tensor):
@@ -75,12 +78,13 @@ def main() -> None:
     )
 
     vb = model.backbone.vision_backbone
-    decoder = _NeckDecoderWrapper(vb).eval()
+    scalp = int(getattr(model.backbone, "scalp", 0))
+    decoder = _NeckDecoderWrapper(vb, scalp=scalp).eval()
 
     dummy = torch.randn(1, 1024, 72, 72, dtype=torch.float32)
-    output_names = [
-        "feat_l0", "feat_l1", "feat_l2", "feat_l3",
-        "pos_l0", "pos_l1", "pos_l2", "pos_l3",
+    num_levels = len(decoder.convs)
+    output_names = [f"feat_l{i}" for i in range(num_levels)] + [
+        f"pos_l{i}" for i in range(num_levels)
     ]
     dynamic_axes = None
     if args.dynamic_batch:

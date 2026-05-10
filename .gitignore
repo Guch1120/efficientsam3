@@ -161,3 +161,21 @@ rf20-vl
 research
 rf100-vl
 ICMR2026
+# Python virtual environments
+.venv/
+.venv_ros2/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Large model / ONNX generated files
+*.onnx
+*.onnx.data
+*.pt
+*.pth
+*.ckpt
+*.safetensors
